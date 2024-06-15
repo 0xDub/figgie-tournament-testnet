@@ -363,27 +363,25 @@ fn main() {
     let playername_rate_limit_map: Arc<Mutex<HashMap<String, u8>>> = Arc::new(Mutex::new(HashMap::new())); // playername -> rate_limit
 
 
-    let player_ws_map: Arc<Mutex<HashMap<String, SplitSink<WebSocketStream<TcpStream>, Message>>>> = Arc::new(Mutex::new(HashMap::new()));
+    let player_ws_map: Arc<Mutex<HashMap<String, SplitSink<WebSocketStream<TcpStream>, Message>>>> = Arc::new(Mutex::new(HashMap::new())); // playername -> websocket
     let player_ws_map_hotpath = Arc::clone(&player_ws_map);
 
 
-    let started: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
-    let matching_engine: Arc<Mutex<MatchingEngine>> = Arc::new(Mutex::new(MatchingEngine::new(STARTING_BALANCE, player_ws_map_hotpath)));
+    let started: Arc<AtomicBool> = Arc::new(AtomicBool::new(false)); // used to signal if there's an active game or not
+    let matching_engine: Arc<Mutex<MatchingEngine>> = Arc::new(Mutex::new(MatchingEngine::new(STARTING_BALANCE, player_ws_map_hotpath))); // init the matching engine
     let matching_engine_hotpath = Arc::clone(&matching_engine);
 
 
-    let (sender, receiver) = kanal::unbounded_async::<(Order, OneshotSender<HTTPResponse>)>();
+    let (sender, receiver) = kanal::unbounded_async::<(Order, OneshotSender<HTTPResponse>)>(); // channel between RestAPI and matching engine, oneshot for responses
     let sender_arc = Arc::new(sender);
 
-
     // =-------------------------------------------------------------------------------------------------------= //
-
 
     let network_thread = std::thread::Builder::new()
         .spawn(move || {
         let res = core_affinity::set_for_current(core_affinity::CoreId { id: 0 });
         if res {
-            let rt = tokio::runtime::Builder::new_multi_thread()
+            let rt = tokio::runtime::Builder::new_multi_thread() // multi-thread shouldn't be needed but I'm unsure of the Actix Web framework and its assumptions of the environment it's in
                 .enable_all()
                 .build()
                 .expect("build runtime");
@@ -419,7 +417,7 @@ fn main() {
                             .service(admin_handler)
                             .service(register_testnet_handler)
                     })
-                    .bind(("127.0.0.1", 8080)).expect("[!] Failed to bind the address")
+                    .bind(("127.0.0.1", 8080)).expect("[!] Failed to bind the address") // this will fail the whole exchange if something else is already binded to this port
                     .run()
                     .await {
                         println!("[!] Error with the REST API server: {:?}", e);
@@ -555,7 +553,7 @@ fn main() {
 
                         },
                         Err(e) => {
-                            //println!("{}[!] Failed to receive a response from the matching engine: {:?}{}", CL::Red.get(), e, CL::End.get());
+                            //println!("{}[!] Failed to receive a response from the matching engine: {:?}{}", CL::Red.get(), e, CL::End.get()); // commented out so errors can be seen without this message being spammed
                         }
                     }
                 }
