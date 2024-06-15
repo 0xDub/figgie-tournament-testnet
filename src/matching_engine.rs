@@ -174,23 +174,12 @@ impl MatchingEngine {
     }
 
     pub async fn end_game(&mut self) {
-        let full_update = json!({
+        let message = json!({
             "kind": "end_game",
             "data": "Testnet game is over. Restarting another game in 15 seconds. All player_names and player_ids will be reset so please send another post to /register_testnet to get a new player_name",
         });
-        let serialized_update = full_update.to_string();
 
-        let mut removed_players = Vec::new();
-        for (player_name, sender) in self.player_ws_map_hotpath.lock().await.iter_mut() {
-            if let Err(_) = sender.send(Message::Text(serialized_update.clone())).await {
-                println!("{}[!] Error sending message to player | Deleting from the map. Player must resubscribe{}", CL::Red.get(), CL::End.get());
-                removed_players.push(player_name.clone());
-            }
-        }
-
-        for player_name in removed_players {
-            self.player_ws_map_hotpath.lock().await.remove(&player_name);
-        }
+        self.send_message(message).await;
     }
 
     pub async fn end_round(&mut self) {
@@ -490,6 +479,8 @@ impl MatchingEngine {
         println!("{}{}", inventory_string, CL::End.get());
         println!("=---------------------------------------------------------------------------------=\n");
 
+
+
         let book_event = Update {
             spades: self.spades_book.clone(),
             clubs: self.clubs_book.clone(),
@@ -497,8 +488,7 @@ impl MatchingEngine {
             hearts: self.hearts_book.clone(),
             trade,
         };
-
-        let full_update = json!({
+        let message = json!({
             "kind": "update",
             "data": book_event,
         });
@@ -506,18 +496,8 @@ impl MatchingEngine {
         //let elapsed = start.elapsed().as_micros();
         //println!("{}[+] Time taken to process the order: {} microseconds{}", CL::DullTeal.get(), elapsed, CL::End.get());
 
-        let mut removed_players = Vec::new();
-        for (player_name, sender) in self.player_ws_map_hotpath.lock().await.iter_mut() {
-            if let Err(_) = sender.send(Message::Text(full_update.to_string())).await {
-                println!("{}[!] Error sending message to player | Deleting from the map. Player must resubscribe{}", CL::Red.get(), CL::End.get());
-                removed_players.push(player_name.clone());
-            }
-        }
-
-        for player_name in removed_players {
-            self.player_ws_map_hotpath.lock().await.remove(&player_name);
-        }
-
+        // this is an interesting race if you think about it. The update will populate before the submitor is notified of the trade
+        self.send_message(message).await;
         return HTTPResponse {
             status: "SUCCESS".to_string(),
             message: format!("{},{},{}", order.card.to_string().to_lowercase(), order.direction.to_string().to_lowercase(), order.price),
@@ -534,23 +514,13 @@ impl MatchingEngine {
             goal_suit: self.goal_suit.clone(),
             common_suit: self.common_suit.clone(),
         };
-        let full_update = json!({
+        let message = json!({
             "kind": "end_round",
             "data": end_round_update,
         });
-        let serialized_update = full_update.to_string();
 
-        let mut removed_players = Vec::new();
-        for (player_name, sender) in self.player_ws_map_hotpath.lock().await.iter_mut() {
-            if let Err(_) = sender.send(Message::Text(serialized_update.clone())).await {
-                println!("{}[!] Error sending message to player | Deleting from the map. Player must resubscribe{}", CL::Red.get(), CL::End.get());
-                removed_players.push(player_name.clone());
-            }
-        }
+        self.send_message(message).await;
 
-        for player_name in removed_players {
-            self.player_ws_map_hotpath.lock().await.remove(&player_name);
-        }
     }
 
 
@@ -587,14 +557,19 @@ impl MatchingEngine {
             trade: None,
         };
 
-        let full_update = json!({
+        let message = json!({
             "kind": "update",
             "data": book_event,
         });
 
+        self.send_message(message).await;
+
+    }
+
+    async fn send_message(&self, message: serde_json::Value) {
         let mut removed_players = Vec::new();
         for (player_name, sender) in self.player_ws_map_hotpath.lock().await.iter_mut() {
-            if let Err(_) = sender.send(Message::Text(full_update.to_string())).await {
+            if let Err(_) = sender.send(Message::Text(message.to_string())).await {
                 println!("{}[!] Error sending message to player | Deleting from the map. Player must resubscribe{}", CL::Red.get(), CL::End.get());
                 removed_players.push(player_name.clone());
             }
@@ -603,7 +578,6 @@ impl MatchingEngine {
         for player_name in removed_players {
             self.player_ws_map_hotpath.lock().await.remove(&player_name);
         }
-
     }
 
 
