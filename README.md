@@ -14,7 +14,7 @@ Note: player points are not true as the supply of cards isn't dynamic
 
 I split up the high-level functions into 2 cores. The first core handles API requests, WS connections, and rate limit monitoring, whereas the second core handles the matching engine. In a prod setting I'd imagine that the server isols the matching engine core, allocates X cores to handling incoming and outgoing network traffic and shares data between them via some sort of lock-free buffer
 
-For the outgoing traffic I'd imagine they send some sort of data to network out cores that then distribute this data in some fair way (to limit the TCP good connection alpha as much as possible). However in my testnet I let the matching engine send out the messages directly from the core. I admit this was part laziness but it works and there are only 4x players per real game so I don't imagine it'll be unfair to the point it gives anyone network edge
+For the outgoing traffic I'd imagine they send some sort of data to network out cores that then distribute this data in some fair way (tradfi goes the UDP multicast route for a reason). However in my testnet I let the matching engine send out the messages directly from the core. I admit this was part laziness but it works and there are only 4x players per real game so I don't imagine it'll be unfair to the point it gives anyone network edge
 
 The serialization was quite interesting. I could have serialized the Option<>'s but this would have made it a pain for the client-side to handle so I opted to Stringify a lot of integers and if they're empty then send over an empty string. Doing this should make it easier to create parsing structs for the client-side
 
