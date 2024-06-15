@@ -140,22 +140,22 @@ async fn order_handler(
             
             // I don't want to keep a lock on the rate limit map for too long, so let's get the data, clone it, then drop it
             let mut playername_rate_limit_map_guard = playername_rate_limit_map.lock().await;
-            let mut outside_rate_limit: u8 = 0;
-            if let Some(rate_limit) = playername_rate_limit_map_guard.get_mut(player_name) {
-                *rate_limit += 1;
-                outside_rate_limit = rate_limit.clone();
-            } else {
-                println!("{}[!] {:?} | Rate limit not found for playername{}", CL::Red.get(), player_name, CL::End.get());
-                let response = HTTPResponse { status: "UNKNOWN_PLAYER".to_string(), message: "Player name not found. Have you sent a post to /register_testnet?".to_string()};
-                let serialized_response = serde_json::to_string(&response).unwrap();
-                return HttpResponse::Ok().json(serialized_response);
-            }
+            let rate_limit = match playername_rate_limit_map_guard.get_mut(player_name) {
+                Some(rate_limit) => {
+                    *rate_limit += 1;
+                    *rate_limit
+                }
+                None => {
+                    println!("{}[!] {:?} | Rate limit not found for playername{}", CL::Red.get(), player_name, CL::End.get());
+                    let response = HTTPResponse { status: "UNKNOWN_PLAYER".to_string(), message: "Player name not found. Have you sent a post to /register_testnet?".to_string() };
+                    let serialized_response = serde_json::to_string(&response).unwrap();
+                    return HttpResponse::Ok().json(serialized_response);
+                }
+            };
             drop(playername_rate_limit_map_guard);
 
 
-
-
-            match outside_rate_limit > rate_limit_per_second {
+            match rate_limit > rate_limit_per_second {
                 true => {
                     let response = HTTPResponse { status: "RATE_LIMIT".to_string(), message: "Settle down there mate, you've reached >10 orders/second. Please wait 1 second till your limits are reset".to_string()};
                     let serialized_response = serde_json::to_string(&response).unwrap();
@@ -250,20 +250,22 @@ async fn inventory_handler(
             
             // I don't want to keep a lock on the rate limit map for too long, so let's get the data, clone it, then drop it (there's gotta be a better way to do this)
             let mut playername_rate_limit_map_guard = playername_rate_limit_map.lock().await;
-            let mut outside_rate_limit: u8 = 0;
-            if let Some(rate_limit) = playername_rate_limit_map_guard.get_mut(player_name) {
-                *rate_limit += 1;
-                outside_rate_limit = rate_limit.clone();
-            } else {
-                println!("{}[!] {:?} | Rate limit not found for playername{}", CL::Red.get(), player_name, CL::End.get());
-                let response = HTTPResponse { status: "UNKNOWN_PLAYER".to_string(), message: "Player name not found. Have you sent a post to /register_testnet?".to_string()};
-                let serialized_response = serde_json::to_string(&response).unwrap();
-                return HttpResponse::Ok().json(serialized_response);
-            }
+            let rate_limit = match playername_rate_limit_map_guard.get_mut(player_name) {
+                Some(rate_limit) => {
+                    *rate_limit += 1;
+                    *rate_limit
+                }
+                None => {
+                    println!("{}[!] {:?} | Rate limit not found for playername{}", CL::Red.get(), player_name, CL::End.get());
+                    let response = HTTPResponse { status: "UNKNOWN_PLAYER".to_string(), message: "Player name not found. Have you sent a post to /register_testnet?".to_string() };
+                    let serialized_response = serde_json::to_string(&response).unwrap();
+                    return HttpResponse::Ok().json(serialized_response);
+                }
+            };
             drop(playername_rate_limit_map_guard);
 
 
-            match outside_rate_limit > rate_limit_per_second {
+            match rate_limit > rate_limit_per_second {
                 true => {
                     let response = HTTPResponse { status: "RATE_LIMIT".to_string(), message: "Settle down there mate. The inventory rate limit is 1x / 5 seconds".to_string()};
                     let serialized_response = serde_json::to_string(&response).unwrap();
