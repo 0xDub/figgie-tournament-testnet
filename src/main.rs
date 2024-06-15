@@ -83,11 +83,8 @@ async fn admin_handler(
                                 // Clear all players to keep the testnet lightweight
                                 match_maker_inside.lock().await.delete_all_players();
 
-                                let mut playerid_playername_map_guard = playerid_playername_map.write().await;
-                                playerid_playername_map_guard.clear();
-
-                                let mut playername_rate_limit_map_guard = playername_rate_limit_map.lock().await;
-                                playername_rate_limit_map_guard.clear();
+                                playerid_playername_map.write().await.clear();
+                                playername_rate_limit_map.lock().await.clear();
 
                                 sleep(Duration::from_secs(15)).await;
                             }
