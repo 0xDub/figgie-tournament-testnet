@@ -1,5 +1,5 @@
 [package]
-name = "figgie-tourney-exchange"
+name = "figgie-tournament-testnet"
 version = "0.1.0"
 edition = "2021"
 
@@ -17,9 +17,6 @@ core_affinity = { version = "0.8.1" }
 tokio-tungstenite = "0.21.0"
 futures-util = "0.3.30"
 minstant = "0.1.7"
-lazy_static = "1.4.0"
-strum = "0.26.2"
-strum_macros = "0.26.4"
 random_word = { version = "0.4.3", features = ["en"] }
 
 [profile.release]

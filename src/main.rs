@@ -123,7 +123,7 @@ async fn order_handler(
 ) -> impl Responder {
     println!("{}[+] ORDER |:| Received new order from the API{}", CL::DimLightBlue.get(), CL::End.get());
 
-    let rate_limit_per_second = 10;
+    let rate_limit_per_second = 10; // rate limit is shared with /inventory and /order
     let headers = req.headers();
 
     // in this section of the code we need to filter out bad orders, get the headers and match it with the player name
@@ -236,7 +236,7 @@ async fn inventory_handler(
     playerid_playername_map: web::Data<Arc<RwLock<HashMap<String, String>>>>,
     playername_rate_limit_map: web::Data<Arc<Mutex<HashMap<String, u8>>>>,
 ) -> impl Responder {
-    let rate_limit_per_second = 1;
+    let rate_limit_per_second = 10; // rate limit is shared with /inventory and /order
     let headers = req.headers();
 
     if !started_game.load(Ordering::Acquire) {
@@ -309,7 +309,6 @@ fn generate_random_player_name() -> String {
 #[post("/register_testnet")]
 async fn register_testnet_handler(
     req: HttpRequest,
-    started_game: web::Data<Arc<AtomicBool>>,
     matching_engine: web::Data<Arc<Mutex<MatchingEngine>>>,
     playerid_playername_map: web::Data<Arc<RwLock<HashMap<String, String>>>>,
     playername_rate_limit_map: web::Data<Arc<Mutex<HashMap<String, u8>>>>,
@@ -356,17 +355,8 @@ async fn register_testnet_handler(
 
 
 
-#[tokio::main] // or #[tokio::main]
-async fn main() {
-    println!("=-= Starting Figgie Tourney Exchange =-=");
-
-    // in the tourney setting, populate this map with the player names and their passwords BEFORE the game starts
-    // the allowed players will be controlled via IP whitelists, so, their connections needs to be wiped routinely while there is no game playing
-
-    // also, we will need a manual way to pause and play games, so, we need manual control over the flow of the games
-    // perhaps through the API, and then write up a client to interact with the API (private access)
-
-
+fn main() {
+    println!("=-= Starting Figgie Testnet Exchange =-=");
 
     // =-------------------------------------------------------------------------------------------------------= //
 
@@ -566,7 +556,7 @@ async fn main() {
 
                         },
                         Err(e) => {
-                            println!("{}[!] Failed to receive a response from the matching engine: {:?}{}", CL::Red.get(), e, CL::End.get());
+                            //println!("{}[!] Failed to receive a response from the matching engine: {:?}{}", CL::Red.get(), e, CL::End.get());
                         }
                     }
                 }
