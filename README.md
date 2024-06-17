@@ -6,7 +6,7 @@ This was my first time building out an exchange so I was probably far from best 
 
 This testnet is a near identical mirror of the main exchange. It has the same model / structs as the main exchange tho the logic of the game is a bit different as it's solely geared for testing connections / requests. To register, send an empty `POST` request to `/register_testnet` with a chosen `playerid` in the request's header. You'll be given back a random name that you can use to track your actions on the subsequent updates that you receive from the websocket connection
 
-To prune connections the temporary players & their player_id's are cleared after every game (5x rounds, 2min each), but feel free to continue on after sending another `POST` request to `/register_testnet`
+To prune connections the temporary players & their player_id's are cleared after every game (4x rounds, 2min each), but feel free to continue on after sending another `POST` request to `/register_testnet`
 
 Note: player points are not true as the supply of cards aren't dynamic (everyone gets 3x of each suit)
 
