@@ -17,24 +17,34 @@ impl Serialize for CardBook {
     {
         let mut state = serializer.serialize_struct("CardBook", 2)?;
 
-        let mut stringified_book = BookEntryStringified { player_name: "".to_string(), price: "".to_string() };
-        if let (Some(price), Some(player_name)) = self.get_best_ask() {
-            stringified_book = BookEntryStringified {
-                player_name: player_name.to_string(),
-                price: price.to_string(),
-            };
-        }
-        state.serialize_field("asks", &stringified_book)?;
+        // changed the serialization method to be more akin to how a crypto exchange does it, should be more client-friendly this way
+
+        // legacy serialization method with dicts
+        //let mut stringified_book = BookEntryStringified { player_name: "".to_string(), price: "".to_string() };
+        //if let (Some(price), Some(player_name)) = self.get_best_ask() {
+        //    stringified_book = BookEntryStringified {
+        //        player_name: player_name.to_string(),
+        //        price: price.to_string(),
+        //    };
+        //}
+
+        // serialize it into a Vec<BookEntrySerialized> = Vec<(integer, String)>
+        // but only serialize the first element (unless people want the full book published)
+        let bids = self.bids.first().map(|x| (x.price, x.player_name.clone())).into_iter().collect::<Vec<_>>();
+        state.serialize_field("asks", &bids)?;
 
 
-        let mut stringified_book = BookEntryStringified { player_name: "".to_string(), price: "".to_string() };
-        if let (Some(price), Some(player_name)) = self.get_best_bid() {
-            stringified_book = BookEntryStringified {
-                player_name: player_name.to_string(),
-                price: price.to_string(),
-            };
-        }
-        state.serialize_field("bids", &stringified_book)?;
+    
+        // legacy serialization method with dicts
+        //let mut stringified_book = BookEntryStringified { player_name: "".to_string(), price: "".to_string() };
+        //if let (Some(price), Some(player_name)) = self.get_best_bid() {
+        //    stringified_book = BookEntryStringified {
+        //        player_name: player_name.to_string(),
+        //        price: price.to_string(),
+        //    };
+        //}
+        let asks = self.asks.first().map(|x| (x.price, x.player_name.clone())).into_iter().collect::<Vec<_>>();
+        state.serialize_field("bids", &asks)?;
         
         
         state.serialize_field(

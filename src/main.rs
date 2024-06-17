@@ -16,7 +16,7 @@ use tokio::sync::RwLock;
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::{Sender as OneshotSender};
 use kanal::AsyncSender;
-
+use tokio::signal::ctrl_c;
 
 mod utils;
 pub use utils::*;
@@ -293,6 +293,8 @@ async fn inventory_handler(
 
 }
 
+
+
 fn generate_random_player_name() -> String {
     let first_word = random_word::gen_len(5, random_word::Lang::En).unwrap();
     let first_word = format!("{}{}", first_word.chars().next().unwrap().to_uppercase().collect::<String>(), &first_word[1..]);
@@ -353,8 +355,8 @@ async fn register_testnet_handler(
 }
 
 
-
-fn main() {
+#[tokio::main]
+async fn main() {
     println!("=-= Starting Figgie Testnet Exchange =-=");
 
     // =-------------------------------------------------------------------------------------------------------= //
@@ -375,6 +377,19 @@ fn main() {
     let (sender, receiver) = kanal::unbounded_async::<(Order, OneshotSender<HTTPResponse>)>(); // channel between RestAPI and matching engine, oneshot for responses
     let sender_arc = Arc::new(sender);
 
+
+    let (ws_shutdown_tx, mut ws_shutdown_rx) = tokio::sync::oneshot::channel();
+    let (rate_shutdown_tx, mut rate_shutdown_rx) = tokio::sync::oneshot::channel();
+    let (hotpath_shutdown_tx, mut hotpath_shutdown_rx) = tokio::sync::oneshot::channel();
+    let ctrl_c_signal = tokio::spawn(async move {
+        ctrl_c().await.expect("[!] Failed to listen for Ctrl+C signal");
+        // WS, rate limit, & hotpath cause a hang on Ctrl + C, so we'll send a shutdown signal to them
+        let _ = ws_shutdown_tx.send(());
+        let _ = rate_shutdown_tx.send(());
+        let _ = hotpath_shutdown_tx.send(());
+    });
+
+
     // =-------------------------------------------------------------------------------------------------------= //
 
     let network_thread = std::thread::Builder::new()
@@ -392,10 +407,16 @@ fn main() {
                 let playername_rate_limit_map_monitoring = Arc::clone(&playername_rate_limit_map);
                 let rate_limit_monitoring = tokio::task::spawn(async move {
                     loop {
-                        tokio::time::sleep(Duration::from_secs(1)).await;
-                        let mut playername_rate_limit_map_guard = playername_rate_limit_map_monitoring.lock().await;
-                        for (_, rate_limit) in playername_rate_limit_map_guard.iter_mut() {
-                            *rate_limit = 0;
+                        tokio::select! {
+                            _ = &mut rate_shutdown_rx => {
+                                break;
+                            }
+                            _ = tokio::time::sleep(Duration::from_secs(1)) => {
+                                let mut playername_rate_limit_map_guard = playername_rate_limit_map_monitoring.lock().await;
+                                for (_, rate_limit) in playername_rate_limit_map_guard.iter_mut() {
+                                    *rate_limit = 0;
+                                }
+                            }
                         }
                     }
                 });
@@ -430,94 +451,106 @@ fn main() {
                 let websocket = tokio::task::spawn(async move {
                     if let Ok(listener) = TcpListener::bind(&"127.0.0.1:8090").await {
 
-                        while let Ok((stream, addr)) = listener.accept().await {
-                            let player_ws_map_network_inside = Arc::clone(&player_ws_map);
-                            let playerid_playername_map_websocket = Arc::clone(&playerid_playername_map);
-                            tokio::spawn(async move {
-                                println!("[+] Incoming TCP connection from: {:?}", addr);
+                        loop {
+                            tokio::select! {
+                                _ = &mut ws_shutdown_rx => {
+                                    break;
+                                }
+                                result = listener.accept() => {
+                                    if let Ok((stream, addr)) = result {
+                                        let player_ws_map_network_inside = Arc::clone(&player_ws_map);
+                                        let playerid_playername_map_websocket = Arc::clone(&playerid_playername_map);
+                                        tokio::spawn(async move {
+                                            println!("[+] WS |:| Incoming TCP connection from: {:?}", addr);
 
-                                match tokio_tungstenite::accept_async(stream).await {
-                                    Ok(ws_stream) => {
-                                        println!("{}[+] WebSocket connection established: {:?}{}", CL::Green.get(), addr, CL::End.get());
+                                            match tokio_tungstenite::accept_async(stream).await {
+                                                Ok(ws_stream) => {
+                                                    println!("{}[+] WS |:| WebSocket connection established: {:?}{}", CL::Green.get(), addr, CL::End.get());
 
-                                        let (mut sender, mut receiver) = ws_stream.split();
-                                        while let Some(msg) = receiver.next().await {
-                                            if let Ok(msg) = msg {
-                                                println!("{}[-] Received a message: {:?}{}", CL::Dull.get(), msg, CL::End.get());
-                                    
-                                                match msg {
-                                                    Message::Text(text) => {
-                                                        if let Ok(message) = serde_json::from_str::<SubscribeMessage>(&text) {
-                                                            if message.action == "subscribe" {
-                                                                println!("{}[-] Attempting to subscribe to the exchange{}", CL::Dull.get(), CL::End.get());
-                                        
-                                                                match playerid_playername_map_websocket.read().await.get(&message.playerid) {
-                                                                    Some(player_name) => {
+                                                    let (mut sender, mut receiver) = ws_stream.split();
+                                                    while let Some(msg) = receiver.next().await {
+                                                        if let Ok(msg) = msg {
+                                                            println!("{}[-] WS |:| Received a message: {:?}{}", CL::Dull.get(), msg, CL::End.get());
+                                                
+                                                            match msg {
+                                                                Message::Text(text) => {
+                                                                    if let Ok(message) = serde_json::from_str::<SubscribeMessage>(&text) {
+                                                                        if message.action == "subscribe" {
+                                                                            println!("{}[-] WS |:| Attempting to subscribe to the exchange{}", CL::Dull.get(), CL::End.get());
+                                                    
+                                                                            match playerid_playername_map_websocket.read().await.get(&message.playerid) {
+                                                                                Some(player_name) => {
 
-                                                                        // =-= SUCCESS =-= //
-                                                                        println!("{}[+] Successfully subscribed to the stream: {:?}{}", CL::DullTeal.get(), player_name, CL::End.get());
-                                                                        let welcome_message = Message::Text(serde_json::to_string(&HTTPResponse {
-                                                                            status: "SUCCESS".to_string(),
-                                                                            message: format!("Welcome to the tesetnet, {}! You've been subscribed for further data updates", player_name)
-                                                                        }).unwrap());
-                                                                        sender.send(welcome_message).await.unwrap();
-                                        
+                                                                                    // =-= SUCCESS =-= //
+                                                                                    println!("{}[+] WS |:| Successfully subscribed to the stream: {:?}{}", CL::DullTeal.get(), player_name, CL::End.get());
+                                                                                    let welcome_message = Message::Text(serde_json::to_string(&HTTPResponse {
+                                                                                        status: "SUCCESS".to_string(),
+                                                                                        message: format!("Welcome to the tesetnet, {}! You've been subscribed for further data updates", player_name)
+                                                                                    }).unwrap());
+                                                                                    sender.send(welcome_message).await.unwrap();
+                                                    
 
-                                                                        player_ws_map_network_inside.lock().await.insert(player_name.clone(), sender);
-                                                                        break;
+                                                                                    player_ws_map_network_inside.lock().await.insert(player_name.clone(), sender);
+                                                                                    break;
 
-                                                                    },
-                                                                    None => {
+                                                                                },
+                                                                                None => {
 
-                                                                        // =-= ACCOUNT_NOT_FOUND =-= //
-                                                                        println!("{}[!] Account not found for the password given: {}{}", CL::Orange.get(), message.playerid, CL::End.get());
+                                                                                    // =-= ACCOUNT_NOT_FOUND =-= //
+                                                                                    println!("{}[!] WS |:| Account not found for the password given: {}{}", CL::Orange.get(), message.playerid, CL::End.get());
+                                                                                    let response_message = Message::Text(serde_json::to_string(&HTTPResponse {
+                                                                                        status: "UNKNOWN_PLAYER".to_string(),
+                                                                                        message: "Player name not found. Have you sent a post to /register_testnet?".to_string()
+                                                                                    }).unwrap());
+                                                                                    sender.send(response_message).await.unwrap();
+
+                                                                                }
+                                                                            }
+                                                                        } else {
+
+                                                                            // =-= UNAUTHORIZED_ACTION =-= //
+                                                                            println!("{}[!] WS |:| Unrecognized action: {:?} | Please send 'subscribe' with 'playerid'{}", CL::Orange.get(), message.action, CL::End.get());
+                                                                            let response_message = Message::Text(serde_json::to_string(&HTTPResponse {
+                                                                                status: "UNAUTHORIZED_ACTION".to_string(),
+                                                                                message: "Unauthorized action, please send 'subscribe' as the action".to_string()
+                                                                            }).unwrap());
+                                                                            sender.send(response_message).await.unwrap();
+
+                                                                        }
+                                                                    } else {
+
+                                                                        // =-= PARSE_ERROR =-= //
+                                                                        println!("{}[!] WS |:| Failed to parse the WS message{}", CL::Orange.get(), CL::End.get());
                                                                         let response_message = Message::Text(serde_json::to_string(&HTTPResponse {
-                                                                            status: "UNKNOWN_PLAYER".to_string(),
-                                                                            message: "Player name not found. Have you sent a post to /register_testnet?".to_string()
+                                                                            status: "PARSE_ERROR".to_string(),
+                                                                            message: "Failed to parse the message. Please send a JSON message with fields 'subscribe' and 'playerid' that match up with your PlayerName (in the testnet, send a random playerid)".to_string()
                                                                         }).unwrap());
                                                                         sender.send(response_message).await.unwrap();
 
                                                                     }
-                                                                }
-                                                            } else {
-
-                                                                // =-= UNAUTHORIZED_ACTION =-= //
-                                                                println!("{}[!] Unrecognized action: {:?} | Please send 'subscribe' with 'playerid'{}", CL::Orange.get(), message.action, CL::End.get());
-                                                                let response_message = Message::Text(serde_json::to_string(&HTTPResponse {
-                                                                    status: "UNAUTHORIZED_ACTION".to_string(),
-                                                                    message: "Unauthorized action, please send 'subscribe' as the action".to_string()
-                                                                }).unwrap());
-                                                                sender.send(response_message).await.unwrap();
-
+                                                                },
+                                                                Message::Close(_) => {
+                                                                    println!("{}[!] WS |:| Connection has been closed{}", CL::DullRed.get(), CL::End.get());
+                                                                    // cleanup is handled in the matching_engine
+                                                                    break;
+                                                                },
+                                                                _ => {}
                                                             }
-                                                        } else {
-
-                                                            // =-= PARSE_ERROR =-= //
-                                                            println!("{}[!] Failed to parse the WS message{}", CL::Orange.get(), CL::End.get());
-                                                            let response_message = Message::Text(serde_json::to_string(&HTTPResponse {
-                                                                status: "PARSE_ERROR".to_string(),
-                                                                message: "Failed to parse the message. Please send a JSON message with fields 'subscribe' and 'playerid' that match up with your PlayerName (in the testnet, send a random playerid)".to_string()
-                                                            }).unwrap());
-                                                            sender.send(response_message).await.unwrap();
-
                                                         }
-                                                    },
-                                                    Message::Close(_) => {
-                                                        println!("{}[!] Connection has been closed{}", CL::DullRed.get(), CL::End.get());
-                                                        // cleanup is handled in the matching_engine
-                                                        break;
-                                                    },
-                                                    _ => {}
+                                                    }
+                                                },
+                                                Err(e) => {
+                                                    println!("{}[!] Error accepting WS connection{}", CL::Red.get(), CL::End.get());
                                                 }
                                             }
-                                        }
-                                    },
-                                    Err(e) => {
-                                        println!("{}[!] Error accepting WS connection{}", CL::Red.get(), CL::End.get());
+                                        });
                                     }
                                 }
-                            });
+                            }
                         }
+
+                    } else {
+                        println!("{}[!] WS |:| Failed to bind the address{}", CL::Red.get(), CL::End.get());
                     }
                 });
                 handles.push(websocket);
@@ -537,23 +570,26 @@ fn main() {
         if res {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
-                .worker_threads(1)
                 .build()
                 .expect("build runtime");
-            let local = tokio::task::LocalSet::new();
-            local.block_on(&rt, async {
+            rt.block_on(async {
                 loop {
-                    match receiver.recv().await {
-                        Ok((order_data, response_sender)) => {
-                        
-                            let response = matching_engine_hotpath.lock().await.process_order(order_data).await;
-                            if let Err(e) = response_sender.send(response) {
-                                println!("{}[!] Failed to send the response back to the RestAPI: {:?}{}", CL::Red.get(), e, CL::End.get()); // how to handle this? assume that the HTTP Connection was dropped?
+                    tokio::select! {
+                        _ = &mut hotpath_shutdown_rx => {
+                            break;
+                        }
+                        result = receiver.recv() => {
+                            match result {
+                                Ok((order_data, response_sender)) => {
+                                    let response = matching_engine_hotpath.lock().await.process_order(order_data).await;
+                                    if let Err(e) = response_sender.send(response) {
+                                        println!("{}[!] Failed to send the response back to the RestAPI: {:?}{}", CL::Red.get(), e, CL::End.get()); // how to handle this? assume that the HTTP Connection was dropped?
+                                    }
+                                },
+                                Err(e) => {
+                                    println!("{}[!] Failed to receive a response from the matching engine: {:?}{}", CL::Red.get(), e, CL::End.get());
+                                }
                             }
-
-                        },
-                        Err(e) => {
-                            //println!("{}[!] Failed to receive a response from the matching engine: {:?}{}", CL::Red.get(), e, CL::End.get()); // commented out so errors can be seen without this message being spammed
                         }
                     }
                 }
@@ -562,8 +598,11 @@ fn main() {
     }).unwrap();
 
 
+    ctrl_c_signal.await.unwrap();
 
     network_thread.join().unwrap();
     hotpath_thread.join().unwrap();
+
+    println!("{}[+] All done!{}", CL::Dull.get(), CL::End.get());
 
 }
