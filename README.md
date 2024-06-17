@@ -1,24 +1,28 @@
 # Algorithmic Figgie Tournament - Testnet
 
-This is my first time building out an exchange so guaranteed I was far away from best practices but I wanted to open source this so there's some examples online that people can view. Feel free to open PR's or send me your thoughts!
-
-Splitting up the logic into modular functions is definitely something that should be done
+This was my first time building out an exchange so I was probably far from best practices but I wanted to open source this so there's some examples online that people can view. My hope is that it can inspire some people or get the gears turning on possible architectures that are used in prod. Let the creativity flow for network and architectural alpha!
 
 ## Description
 
-The testnet is a semi-mirror of the main exchange. It has the same model / structs as the main exchange but the logic of the game is a bit different. Instead of a static amount of cards being shuffled then dealt out, it's set up as a free-for-all so anyone can connect and test their WS & API connections at any time. For the game details, everyone will be dealt 3x cards of each suit and there's an unlimited amount of players that can play per game. To register, you'll need to send a POST request to register a temporary playerid then you can use that playerid to place orders throughout the game. At the end of the game the testent will wipe all the players so feel free to reconnect if you still need to test
+This testnet is a near identical mirror of the main exchange. It has the same model / structs as the main exchange tho the logic of the game is a bit different as it's solely geared for testing connections / requests. To register, send an empty `POST` request to `/register_testnet` with a chosen `playerid` in the request's header. You'll be given back a random name that you can use to track your actions on the subsequent updates that you receive from the websocket connection
 
-Note: player points are not true as the supply of cards isn't dynamic
+To prune connections the temporary players & their player_id's are cleared after every game (5x rounds, 2min each), but feel free to continue on after sending another `POST` request to `/register_testnet`
 
-## Infra Notes
+Note: player points are not true as the supply of cards aren't dynamic (everyone gets 3x of each suit)
 
-I split up the high-level functions into 2 cores. The first core handles API requests, WS connections, and rate limit monitoring, whereas the second core handles the matching engine. In a prod setting I'd imagine that the server isols the matching engine core, allocates X cores to handling incoming and outgoing network traffic and shares data between them via some sort of lock-free buffer
+## Infra Notes (for devs)
 
-For the outgoing traffic I'd imagine they send some sort of data to network out cores that then distribute this data in some fair way (tradfi goes the UDP multicast route for a reason). However in my testnet I let the matching engine send out the messages directly from the core. I admit this was part laziness but it works and there are only 4x players per real game so I don't imagine it'll be unfair to the point it gives anyone network edge
+Building this out was quite fun and I ran into a lot of interesting design questions. I listed some thoughts below if you'd like to read them
 
-The serialization was quite interesting. I could have serialized the Option<>'s but this would have made it a pain for the client-side to handle so I opted to Stringify a lot of integers and if they're empty then send over an empty string. Doing this should make it easier to create parsing structs for the client-side
+So to start, I decided to split up the high-level functions into their own distinct cores. The first core handles Incoming Websocket Connections, serving RestAPI requests, and monitors player rate limits. The second core solely processes updates for the matching engine then sends out the updates through the websockets (that are shared via a player_name -> connection map)
 
-What's funny is that I actually ended up refactoring the exchange architecture 3x times to try and find some sort of best practice. Initially I didn't send back responses to order placement, just if the order was accepted or not. This didn't seem the most verbose to create a fulfilling dev environment tho so I switched it up and had the RestAPI send an order to the matching engine core with a freshly-created oneshot sender/receiver that it awaits. The matching engine itself then creates an HTTPResponse struct during the process_update() function and sends it back through the oneshot receiver which the RestAPI awaits then serializes and responds back with
+I figured this was a good step in the right direction for best practices as I've heard that exchange's tend to favor low standard deviation of latency + fairness, opposed to pure raw processing speed. There are (at least) a few problems with the current infra though, one of them you might have caught onto in the last paragraph above. The hotpath core is sending out network IO instead of offloading that onto a dedicated core. This'll hurt the cache of the hotpath core and also cause network interrupts when we could be juicing out a lot more speed in the hotpath core
+
+In a prod setting I'd imagine that they split up the cores, isolcpu the computationally-centric cores, and share data via some busy-spun lock-free buffer. This all gets quite interesting tho when thinking about state machine tech + multiple location / AZ redundancy features that many exchanges likely implement. I'd love to hear how people have tackled this issue before!
+
+For serialization, my main thought here was to try and make it as easy as possible for the client-side to parse the response. I'm not sure about y'all but I love when data is easy to parse (standardization helps!). Some crypto exchange's have done a pretty good job at this so the response takes after them via lists of price levels
+
+Anyways, this was a really fun mini infra rabbit hole to go down! Hats off to all the exchange devs out there, this stuff can get quite challenging
 
 ## Docs
 
