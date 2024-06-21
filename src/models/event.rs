@@ -55,6 +55,12 @@ impl Serialize for Update {
 
 
 
+#[derive(Debug, Clone, Serialize)]
+pub struct EndGamePointsUpdate {
+    #[serde(serialize_with = "serialize_player_points")]
+    pub player_points: HashMap<String, i32>,
+}
+
 
 
 

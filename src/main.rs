@@ -438,7 +438,7 @@ async fn main() {
                             .service(admin_handler)
                             .service(register_testnet_handler)
                     })
-                    .bind(("127.0.0.1", 8080)).expect("[!] Failed to bind the address") // this will fail the whole exchange if something else is already binded to this port
+                    .bind(("127.0.0.1", 8090)).expect("[!] Failed to bind the address") // this will fail the whole exchange if something else is already binded to this port
                     .run()
                     .await {
                         println!("[!] Error with the REST API server: {:?}", e);
@@ -449,7 +449,7 @@ async fn main() {
                 
                 // =-= Websocket Server =-= //
                 let websocket = tokio::task::spawn(async move {
-                    if let Ok(listener) = TcpListener::bind(&"127.0.0.1:8090").await {
+                    if let Ok(listener) = TcpListener::bind(&"127.0.0.1:8080").await {
 
                         loop {
                             tokio::select! {
@@ -587,7 +587,7 @@ async fn main() {
                                     }
                                 },
                                 Err(e) => {
-                                    println!("{}[!] Failed to receive a response from the matching engine: {:?}{}", CL::Red.get(), e, CL::End.get());
+                                    println!("{}[!] Matching Engine Receiver Failed: {:?}{}", CL::Red.get(), e, CL::End.get());
                                 }
                             }
                         }
