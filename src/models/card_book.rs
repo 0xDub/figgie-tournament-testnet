@@ -30,8 +30,10 @@ impl Serialize for CardBook {
 
         // serialize it into a Vec<BookEntrySerialized> = Vec<(integer, String)>
         // but only serialize the first element (unless people want the full book published)
-        let bids = self.bids.first().map(|x| (x.price, x.player_name.clone())).into_iter().collect::<Vec<_>>();
-        state.serialize_field("asks", &bids)?;
+        //let bbo_bid = self.bids.first().map(|x| (x.price, x.player_name.clone())).into_iter().collect::<Vec<_>>();
+        
+        let bids = self.bids.iter().map(|x| (x.price, x.player_name.clone())).into_iter().collect::<Vec<_>>();
+        state.serialize_field("bids", &bids)?;
 
 
     
@@ -43,8 +45,10 @@ impl Serialize for CardBook {
         //        price: price.to_string(),
         //    };
         //}
-        let asks = self.asks.first().map(|x| (x.price, x.player_name.clone())).into_iter().collect::<Vec<_>>();
-        state.serialize_field("bids", &asks)?;
+        //let bbo_ask = self.asks.first().map(|x| (x.price, x.player_name.clone())).into_iter().collect::<Vec<_>>();
+
+        let asks: Vec<(usize, String)> = self.asks.iter().map(|x| (x.price, x.player_name.clone())).into_iter().collect::<Vec<_>>();
+        state.serialize_field("asks", &asks)?;
         
         
         state.serialize_field(
