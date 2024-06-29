@@ -574,6 +574,8 @@ async fn main() {
                 .expect("build runtime");
             rt.block_on(async {
                 loop {
+                    let timer = tokio::time::sleep(Duration::from_secs(5));
+
                     tokio::select! {
                         _ = &mut hotpath_shutdown_rx => {
                             break;
@@ -590,6 +592,10 @@ async fn main() {
                                     println!("{}[!] Matching Engine Receiver Failed: {:?}{}", CL::Red.get(), e, CL::End.get());
                                 }
                             }
+                        }
+                        _ = timer => {
+                            // send out the current book state
+                            matching_engine_hotpath.lock().await.send_book_state().await;
                         }
                     }
                 }

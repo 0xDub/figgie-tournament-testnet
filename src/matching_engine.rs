@@ -29,7 +29,6 @@ pub struct MatchingEngine {
     pub ante: usize,
     pub player_inventories: HashMap<String, Inventory>,
     pub initial_points: HashMap<String, i32>,
-    pub cumulative_points: HashMap<String, i32>,
     pub starting_inventory: HashMap<Card, usize>,
     pub player_ws_map_hotpath: Arc<Mutex<HashMap<String, SplitSink<WebSocketStream<TcpStream>, Message>>>>,
     pub rng: StdRng,
@@ -57,7 +56,6 @@ impl MatchingEngine {
             ante: 0,
             player_inventories: HashMap::new(),
             initial_points: HashMap::new(),
-            cumulative_points: HashMap::new(),
             starting_inventory: HashMap::new(),
             player_ws_map_hotpath,
             rng: StdRng::from_entropy(),
@@ -70,7 +68,6 @@ impl MatchingEngine {
         self.player_points.insert(player_name.clone(), self.starting_balance);
         self.player_inventories.insert(player_name.clone(), inventory);
         self.initial_points.insert(player_name.clone(), self.starting_balance);
-        self.cumulative_points.insert(player_name.clone(), 0);
     }
 
 
@@ -320,9 +317,6 @@ impl MatchingEngine {
             let player_points = self.player_points.get(player_name).unwrap();
             let point_change: i32 = *player_points as i32 - *initial_points as i32;
 
-            let cumulative_points_mut = self.cumulative_points.get_mut(player_name).unwrap();
-            *cumulative_points_mut += point_change;
-
             let change_color = match point_change {
                 x if x > 0 => CL::Green.get(),
                 x if x < 0 => CL::Red.get(),
@@ -361,7 +355,7 @@ impl MatchingEngine {
     pub async fn end_game(&mut self) {
         // send out everyone's cumulative points
         let end_game_points_update = EndGamePointsUpdate {
-            player_points: self.cumulative_points.clone(),
+            player_points: self.player_points.clone(),
         };
         let message = json!({
             "kind": "end_game",
@@ -582,6 +576,21 @@ impl MatchingEngine {
             status: "SUCCESS".to_string(),
             message: format!("{},{},{}", order.card.to_string().to_lowercase(), order.direction.to_string().to_lowercase(), order.price),
         };
+    }
+
+    pub async fn send_book_state(&self) {
+        let book_event = Update {
+            spades: self.spades_book.clone(),
+            clubs: self.clubs_book.clone(),
+            diamonds: self.diamonds_book.clone(),
+            hearts: self.hearts_book.clone(),
+            trade: None,
+        };
+        let message = json!({
+            "kind": "update",
+            "data": book_event,
+        });
+        self.send_message(message).await;
     }
 
 
