@@ -1,4 +1,16 @@
-use super::{HTTPResponse, EndRoundUpdate, EndGamePointsUpdate, Card, Inventory, Order, Update, Trade, Direction, CL, CardBook};
+use super::{
+    HTTPResponse, 
+    EndRoundUpdate, 
+    EndGamePointsUpdate, 
+    Card, 
+    Inventory, 
+    Order, 
+    Update, 
+    Trade, 
+    Direction, 
+    CardBook,
+    CL, 
+};
 use rand::prelude::SliceRandom;
 use std::collections::HashMap;
 use rand::rngs::StdRng;
@@ -367,7 +379,6 @@ impl MatchingEngine {
 
 
     pub async fn process_order(&mut self, order: Order) -> HTTPResponse {
-        //let start = minstant::Instant::now();
 
         // quick check that all the HashMaps have the player_name before we start
         if !self.player_inventories.contains_key(&order.player_name) || !self.player_points.contains_key(&order.player_name) {
@@ -384,11 +395,11 @@ impl MatchingEngine {
             Card::Heart => &mut self.hearts_book,
         };
 
-        let trade: Option<Trade> = match order.direction {
-            Direction::Buy => {
-
+        let trade: Option<Trade> = match (&order.direction, order.price) {
+            (Direction::Buy, Some(price)) => {
+    
                 let player_points = self.player_points.get(&order.player_name).unwrap();
-                if *player_points < order.price as i32 {
+                if *player_points < price as i32 {
                     return HTTPResponse {
                         status: "INSUFFICIENT_FUNDS".to_string(),
                         message: "You don't have enough points to buy this card!".to_string(),
@@ -396,7 +407,7 @@ impl MatchingEngine {
                 }
 
                 if let Some(best_ask) = book.asks.first() {
-                    if order.price >= best_ask.price {
+                    if price >= best_ask.price {
                         //println!("{}[-] Aggressing Player: {:?} | {:?} |:| Matched buy order!{}", CL::Green.get(), order.player_name, order.card, CL::End.get());
 
                         if order.player_name == best_ask.player_name {
@@ -435,16 +446,16 @@ impl MatchingEngine {
                         Some(trade)
     
                     } else {
-                        book.update_bid(order.price, order.player_name);
+                        book.update_bid(price, order.player_name);
                         None
                     }
                 } else {
-                    book.update_bid(order.price, order.player_name);
+                    book.update_bid(price, order.player_name);
                     None
                 }
                 
             },
-            Direction::Sell => {
+            (Direction::Sell, Some(price)) => {
 
                 // check if the user has the inventory to sell this Card
                 let seller_inventory = self.player_inventories.get(&order.player_name).unwrap();
@@ -456,7 +467,7 @@ impl MatchingEngine {
                 }
 
                 if let Some(best_bid) = book.bids.first() {
-                    if order.price <= best_bid.price {
+                    if price <= best_bid.price {
                         //println!("{}[-] Aggressing Player: {:?} | {:?} |:| Matched sell order!{}", CL::Red.get(), order.player_name, order.card, CL::End.get());
     
                         if order.player_name == best_bid.player_name {
@@ -495,14 +506,21 @@ impl MatchingEngine {
                         Some(trade)
     
                     } else {
-                        book.update_ask(order.price, order.player_name);
+                        book.update_ask(price, order.player_name);
                         None
                     }
                 } else {
-                    book.update_ask(order.price, order.player_name);
+                    book.update_ask(price, order.player_name);
                     None
                 }
-                
+            },
+            (Direction::Buy, None) => {
+                book.cancel_bid(order.player_name);
+                None
+            },
+            (Direction::Sell, None) => {
+                book.cancel_ask(order.player_name);
+                None
             },
         };
 
@@ -567,15 +585,26 @@ impl MatchingEngine {
             "data": book_event,
         });
 
-        //let elapsed = start.elapsed().as_micros();
-        //println!("{}[+] Time taken to process the order: {} microseconds{}", CL::DullTeal.get(), elapsed, CL::End.get());
 
         // this is an interesting race if you think about it. The update will populate before the submitor is notified of the trade
         self.send_message(message).await;
-        return HTTPResponse {
-            status: "SUCCESS".to_string(),
-            message: format!("{},{},{}", order.card.to_string().to_lowercase(), order.direction.to_string().to_lowercase(), order.price),
-        };
+
+        match order.price {
+            Some(price) => {
+                return HTTPResponse {
+                    status: "SUCCESS".to_string(),
+                    message: format!("{},{},{}", order.card.to_string().to_lowercase(), order.direction.to_string().to_lowercase(), price),
+                };
+            },
+            None => {
+                return HTTPResponse {
+                    status: "SUCCESS".to_string(),
+                    message: format!("{},{}", order.card.to_string().to_lowercase(), order.direction.to_string().to_lowercase()),
+                };
+            },
+        }
+
+        
     }
 
     pub async fn send_book_state(&self) {

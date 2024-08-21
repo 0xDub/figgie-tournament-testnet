@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use super::CL;
 
+
 #[derive(Debug, Clone)]
 pub enum Direction {
     Buy,
@@ -17,14 +18,14 @@ impl ToString for Direction {
 }
 
 
+
 #[derive(Debug, Clone)]
 pub struct Order {
     pub player_name: String,
-    pub price: usize,
-    pub direction: Direction,
     pub card: Card,
+    pub direction: Direction,
+    pub price: Option<usize>,
 }
-
 
 
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq, Deserialize, Serialize)]

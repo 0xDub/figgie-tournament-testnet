@@ -194,15 +194,122 @@ async fn order_handler(
                         return HttpResponse::Ok().json(serialized_response);
                     }
 
-                    let order_data = Order {
-                        card,
-                        price: data.price,
-                        direction,
+                    let order = Order {
                         player_name: player_name.to_string(),
+                        card,
+                        direction,
+                        price: Some(data.price)
                     };
 
                     let (oneshot_sender, receiver) = oneshot::channel();
-                    sender_arc.send((order_data, oneshot_sender)).await.unwrap();
+                    sender_arc.send((order, oneshot_sender)).await.unwrap();
+
+                    let response = receiver.await.unwrap();
+                    let serialized_response = serde_json::to_string(&response).unwrap();
+                    return HttpResponse::Ok().json(serialized_response);
+                }
+            }
+        } else {
+            println!("{}[!] Player name not found{}", CL::Orange.get(), CL::End.get());
+            let response = HTTPResponse { status: "UNKNOWN_PLAYER".to_string(), message: "Player name not found. Have you sent a post to /register_testnet?".to_string()};
+            let serialized_response = serde_json::to_string(&response).unwrap();
+            return HttpResponse::Ok().json(serialized_response);
+        }
+    } else {
+        println!("{}[!] Required headers not found, please send 'playerid' header with your request{}", CL::Orange.get(), CL::End.get());
+        let response = HTTPResponse { status: "MISSING_HEADER".to_string(), message: "Required headers not found, please send 'playerid' header with your request. If this is for testnet, send anything. During the tournament you'll be given a unique ID that should be placed here".to_string()};
+        let serialized_response = serde_json::to_string(&response).unwrap();
+        return HttpResponse::Ok().json(serialized_response);
+    }
+}
+
+#[post("/cancel")]
+async fn cancel_handler(
+    req: HttpRequest,
+    data: web::Json<RawCancelOrderData>,
+    started_game: web::Data<Arc<AtomicBool>>,
+    sender_arc: web::Data<Arc<AsyncSender<(Order, OneshotSender<HTTPResponse>)>>>,
+    playerid_playername_map: web::Data<Arc<RwLock<HashMap<String, String>>>>,
+    playername_rate_limit_map: web::Data<Arc<Mutex<HashMap<String, u8>>>>,
+) -> impl Responder {
+    println!("{}[+] ORDER |:| Received new cancel order from the API{}", CL::DimLightBlue.get(), CL::End.get());
+
+    let rate_limit_per_second = 10; // rate limit is shared with /inventory and /order
+    let headers = req.headers();
+
+    // in this section of the code we need to filter out bad orders, get the headers and match it with the player name
+    // if it's a valid order and the player name is found, then we check if the player name is within their allowed rolling rate limit allocation
+    // if this all passes, we send it through the matching engine to be processed
+
+    if !started_game.load(Ordering::Acquire) {
+        let response = HTTPResponse { status: "NO_GAME".to_string(), message: "Game hasn't started yet. Sit tight and make sure your websocket connection is up and connected".to_string()};
+        let serialized_response = serde_json::to_string(&response).unwrap();
+        return HttpResponse::Ok().json(serialized_response);
+    }
+
+    if let Some(player_id) = headers.get("playerid") {
+        let player_id = player_id.to_str().unwrap();
+        let playerid_playername_map_guard = playerid_playername_map.read().await;
+        if let Some(player_name) = playerid_playername_map_guard.get(player_id) {
+            
+            // I don't want to keep a lock on the rate limit map for too long, so let's get the data, clone it, then drop it
+            let mut playername_rate_limit_map_guard = playername_rate_limit_map.lock().await;
+            let rate_limit = match playername_rate_limit_map_guard.get_mut(player_name) {
+                Some(rate_limit) => {
+                    *rate_limit += 1;
+                    *rate_limit
+                }
+                None => {
+                    println!("{}[!] {:?} | Rate limit not found for playername{}", CL::Red.get(), player_name, CL::End.get());
+                    let response = HTTPResponse { status: "UNKNOWN_PLAYER".to_string(), message: "Player name not found. Have you sent a post to /register_testnet?".to_string() };
+                    let serialized_response = serde_json::to_string(&response).unwrap();
+                    return HttpResponse::Ok().json(serialized_response);
+                }
+            };
+            drop(playername_rate_limit_map_guard);
+
+
+            match rate_limit > rate_limit_per_second {
+                true => {
+                    let response = HTTPResponse { status: "RATE_LIMIT".to_string(), message: "Settle down there mate, you've reached >10 orders/second. Please wait 1 second till your limits are reset".to_string()};
+                    let serialized_response = serde_json::to_string(&response).unwrap();
+                    return HttpResponse::Ok().json(serialized_response);
+                },
+                false => {
+
+                    let card = match data.card.as_str() {
+                        "spade" => Card::Spade,
+                        "club" => Card::Club,
+                        "diamond" => Card::Diamond,
+                        "heart" => Card::Heart,
+                        _ => {
+                            println!("{}[!] Invalid card{}", CL::Red.get(), CL::End.get());
+                            let response = HTTPResponse { status: "INVALID_CARD".to_string(), message: "For the card, please send either `spade`, `club`, `diamond`, or `heart`".to_string()};
+                            let serialized_response = serde_json::to_string(&response).unwrap();
+                            return HttpResponse::Ok().json(serialized_response);
+                        }
+                    };
+
+                    let direction = match data.direction.as_str() {
+                        "buy" => Direction::Buy,
+                        "sell" => Direction::Sell,
+                        _ => {
+                            println!("{}[!] Invalid direction{}", CL::Red.get(), CL::End.get());
+                            let response = HTTPResponse { status: "INVALID_DIRECTION".to_string(), message: "For the direction, please send either `buy` or `sell`".to_string()};
+                            let serialized_response = serde_json::to_string(&response).unwrap();
+                            return HttpResponse::Ok().json(serialized_response);
+                        }
+                    };
+
+                    let order = Order {
+                        player_name: player_name.to_string(),
+                        card,
+                        direction,
+                        price: None
+                    };
+
+                    let (oneshot_sender, receiver) = oneshot::channel();
+                    sender_arc.send((order, oneshot_sender)).await.unwrap();
 
                     let response = receiver.await.unwrap();
                     let serialized_response = serde_json::to_string(&response).unwrap();
@@ -267,7 +374,7 @@ async fn inventory_handler(
 
             match rate_limit > rate_limit_per_second {
                 true => {
-                    let response = HTTPResponse { status: "RATE_LIMIT".to_string(), message: "Settle down there mate. The inventory rate limit is 1x / 5 seconds".to_string()};
+                    let response = HTTPResponse { status: "RATE_LIMIT".to_string(), message: "Settle down there mate, you've reached >10 orders/second. Please wait 1 second till your limits are reset".to_string()};
                     let serialized_response = serde_json::to_string(&response).unwrap();
                     return HttpResponse::Ok().json(serialized_response);
                 },
@@ -434,11 +541,12 @@ async fn main() {
                             .app_data(web::Data::new(Arc::clone(&matching_engine)))
                             .app_data(web::Data::new(Arc::clone(&sender_arc)))
                             .service(order_handler)
+                            .service(cancel_handler)
                             .service(inventory_handler)
                             .service(admin_handler)
                             .service(register_testnet_handler)
                     })
-                    .bind(("127.0.0.1", 8090)).expect("[!] Failed to bind the address") // this will fail the whole exchange if something else is already binded to this port
+                    .bind(("0.0.0.0", 8090)).expect("[!] Failed to bind the address") // this will fail the whole exchange if something else is already binded to this port
                     .run()
                     .await {
                         println!("[!] Error with the REST API server: {:?}", e);
@@ -449,7 +557,7 @@ async fn main() {
                 
                 // =-= Websocket Server =-= //
                 let websocket = tokio::task::spawn(async move {
-                    if let Ok(listener) = TcpListener::bind(&"127.0.0.1:8080").await {
+                    if let Ok(listener) = TcpListener::bind(&"0.0.0.0:8080").await {
 
                         loop {
                             tokio::select! {

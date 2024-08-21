@@ -18,10 +18,16 @@ pub struct HTTPResponse {
 // =-= RestAPI =-= //
 
 #[derive(Deserialize, Serialize, Debug)]
+pub struct RawCancelOrderData {
+    pub card: String, // "spade", "club", "diamond", "heart"
+    pub direction: String, // "buy" or "sell"
+}
+
+#[derive(Deserialize, Serialize, Debug)]
 pub struct RawOrderData {
-    pub card: String,
+    pub card: String, // "spade", "club", "diamond", "heart"
     pub price: usize,
-    pub direction: String,
+    pub direction: String, // "buy" or "sell"
 }
 
 #[derive(Deserialize, Serialize, Debug)]
