@@ -70,8 +70,8 @@ async fn admin_handler(
                                     // wait 15s before starting the next round
                                     tokio::time::sleep(tokio::time::Duration::from_secs(15)).await;
     
-                                    started_inside.store(true, Ordering::Release);
                                     match_maker_inside.lock().await.start_round(i).await;
+                                    started_inside.store(true, Ordering::Release);
 
                                     // wait `round_duration` before ending the round
                                     tokio::time::sleep(round_duration).await;
@@ -206,7 +206,9 @@ async fn order_handler(
                     };
 
                     let (oneshot_sender, receiver) = oneshot::channel();
-                    sender_arc.send((order, oneshot_sender)).await.unwrap();
+                    if let Err(e) = sender_arc.send((order, oneshot_sender)).await {
+                        println!("{}[!] Failed to send order to matching engine: {:?}", CL::Red.get(), e);
+                    }
 
                     let response = receiver.await.unwrap();
                     let serialized_response = serde_json::to_string(&response).unwrap();
