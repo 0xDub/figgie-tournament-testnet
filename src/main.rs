@@ -70,8 +70,9 @@ async fn admin_handler(
                                     // wait 15s before starting the next round
                                     tokio::time::sleep(tokio::time::Duration::from_secs(15)).await;
     
-                                    match_maker_inside.lock().await.start_round(i).await;
                                     started_inside.store(true, Ordering::Release);
+                                    match_maker_inside.lock().await.start_round(i).await;
+                                    
 
                                     // wait `round_duration` before ending the round
                                     tokio::time::sleep(round_duration).await;
