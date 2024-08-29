@@ -1,4 +1,7 @@
 use actix_web::{post, web, App, HttpServer, HttpRequest, HttpResponse, Responder};
+use actix_cors::Cors;
+use actix_web::http::header;
+
 use tokio::time::{sleep, Duration};
 use std::collections::HashMap;
 use tokio::net::TcpListener;
@@ -42,7 +45,7 @@ async fn admin_handler(
 ) -> impl Responder {
 
     println!("{}[+] ADMIN |:| Received POST request with admin details{}", CL::DimLightBlue.get(), CL::End.get());
-    let round_duration: Duration = tokio::time::Duration::from_secs(60 * 2);
+    let round_duration = Duration::from_secs(60 * 3);
     let headers = req.headers();
     let num_of_rounds = 4;
 
@@ -64,13 +67,14 @@ async fn admin_handler(
                         tokio::task::spawn_local(async move {
                             loop {
                                 for i in 0..num_of_rounds {
-                                    let start = tokio::time::Instant::now();
+                                    // wait 15s before starting the next round
+                                    tokio::time::sleep(tokio::time::Duration::from_secs(15)).await;
     
                                     started_inside.store(true, Ordering::Release);
                                     match_maker_inside.lock().await.start_round(i).await;
-                                    while start.elapsed() < round_duration {
-                                        sleep(Duration::from_secs(1)).await;
-                                    }
+
+                                    // wait `round_duration` before ending the round
+                                    tokio::time::sleep(round_duration).await;
     
                                     started_inside.store(false, Ordering::Release);
                                     match_maker_inside.lock().await.end_round().await;
@@ -534,7 +538,14 @@ async fn main() {
                 let player_password_map_rest = Arc::clone(&playerid_playername_map);
                 let rest_api = tokio::task::spawn(async move {
                     if let Err(e) = HttpServer::new(move || {
+                        let cors = Cors::default()
+                            .allow_any_origin()
+                            .allow_any_method()
+                            .allow_any_header()
+                            .max_age(3600);
+                        
                         App::new()
+                            .wrap(cors)
                             .app_data(web::Data::new(Arc::clone(&player_password_map_rest)))
                             .app_data(web::Data::new(Arc::clone(&playername_rate_limit_map)))
                             .app_data(web::Data::new(Arc::clone(&started)))
