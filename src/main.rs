@@ -1,7 +1,5 @@
-use actix_web::{post, web, App, HttpServer, HttpRequest, HttpResponse, Responder};
+use actix_web::{post, get, web, App, HttpServer, HttpRequest, HttpResponse, Responder};
 use actix_cors::Cors;
-use actix_web::http::header;
-
 use tokio::time::{sleep, Duration};
 use std::collections::HashMap;
 use tokio::net::TcpListener;
@@ -34,6 +32,18 @@ use matching_engine::MatchingEngine;
 const STARTING_BALANCE: i32 = 500;
 
 
+fn generate_random_player_name() -> String {
+    let first_word = random_word::gen_len(5, random_word::Lang::En).unwrap();
+    let first_word = format!("{}{}", first_word.chars().next().unwrap().to_uppercase().collect::<String>(), &first_word[1..]);
+
+    let second_word = random_word::gen_len(5, random_word::Lang::En).unwrap();
+    let second_word = format!("{}{}", second_word.chars().next().unwrap().to_uppercase().collect::<String>(), &second_word[1..]);
+
+    let player_name = format!("{}{}", first_word, second_word);
+    
+    return player_name;
+}
+
 #[post("/admin")]
 async fn admin_handler(
     req: HttpRequest,
@@ -45,8 +55,9 @@ async fn admin_handler(
 ) -> impl Responder {
 
     println!("{}[+] ADMIN |:| Received POST request with admin details{}", CL::DimLightBlue.get(), CL::End.get());
-    let round_duration = Duration::from_secs(60 * 3);
     let headers = req.headers();
+    
+    let round_duration = Duration::from_secs(60 * 3);
     let num_of_rounds = 4;
 
     if let Some(admin_id) = headers.get("adminid") {
@@ -113,7 +124,6 @@ async fn admin_handler(
 }
 
 
-
 #[post("/order")]
 async fn order_handler(
     req: HttpRequest,
@@ -123,7 +133,7 @@ async fn order_handler(
     playerid_playername_map: web::Data<Arc<RwLock<HashMap<String, String>>>>,
     playername_rate_limit_map: web::Data<Arc<Mutex<HashMap<String, u8>>>>,
 ) -> impl Responder {
-    println!("{}[+] ORDER |:| Received new order from the API{}", CL::DimLightBlue.get(), CL::End.get());
+    //println!("{}[+] ORDER |:| Received new order from the API{}", CL::DimLightBlue.get(), CL::End.get());
 
     let rate_limit_per_second = 10; // rate limit is shared with /inventory and /order
     let headers = req.headers();
@@ -209,6 +219,9 @@ async fn order_handler(
                     let (oneshot_sender, receiver) = oneshot::channel();
                     if let Err(e) = sender_arc.send((order, oneshot_sender)).await {
                         println!("{}[!] Failed to send order to matching engine: {:?}", CL::Red.get(), e);
+                        let response = HTTPResponse { status: "ERROR".to_string(), message: "Couldn't send order to matching engine".to_string()};
+                        let serialized_response = serde_json::to_string(&response).unwrap();
+                        return HttpResponse::Ok().json(serialized_response);
                     }
 
                     let response = receiver.await.unwrap();
@@ -217,7 +230,7 @@ async fn order_handler(
                 }
             }
         } else {
-            println!("{}[!] Player name not found{}", CL::Orange.get(), CL::End.get());
+            //println!("{}[!] Player name not found{}", CL::Orange.get(), CL::End.get());
             let response = HTTPResponse { status: "UNKNOWN_PLAYER".to_string(), message: "Player name not found. Have you sent a post to /register_testnet?".to_string()};
             let serialized_response = serde_json::to_string(&response).unwrap();
             return HttpResponse::Ok().json(serialized_response);
@@ -229,6 +242,7 @@ async fn order_handler(
         return HttpResponse::Ok().json(serialized_response);
     }
 }
+
 
 #[post("/cancel")]
 async fn cancel_handler(
@@ -324,7 +338,7 @@ async fn cancel_handler(
                 }
             }
         } else {
-            println!("{}[!] Player name not found{}", CL::Orange.get(), CL::End.get());
+            //println!("{}[!] Player name not found{}", CL::Orange.get(), CL::End.get());
             let response = HTTPResponse { status: "UNKNOWN_PLAYER".to_string(), message: "Player name not found. Have you sent a post to /register_testnet?".to_string()};
             let serialized_response = serde_json::to_string(&response).unwrap();
             return HttpResponse::Ok().json(serialized_response);
@@ -338,8 +352,7 @@ async fn cancel_handler(
 }
 
 
-
-#[post("/inventory")]
+#[get("/inventory")]
 async fn inventory_handler(
     req: HttpRequest,
     started_game: web::Data<Arc<AtomicBool>>,
@@ -393,7 +406,7 @@ async fn inventory_handler(
                 }
             }
         } else {
-            println!("{}[!] Player name not found{}", CL::Orange.get(), CL::End.get());
+            //println!("{}[!] Player name not found{}", CL::Orange.get(), CL::End.get());
             let response = HTTPResponse { status: "UNKNOWN_PLAYER".to_string(), message: "Player name not found. Have you sent a post to /register_testnet?".to_string()};
             let serialized_response = serde_json::to_string(&response).unwrap();
             return HttpResponse::Ok().json(serialized_response);
@@ -408,18 +421,23 @@ async fn inventory_handler(
 }
 
 
+#[get("/players")]
+async fn player_handler(
+    req: HttpRequest,
+    playerid_playername_map: web::Data<Arc<RwLock<HashMap<String, String>>>>,
+) -> impl Responder {
 
-fn generate_random_player_name() -> String {
-    let first_word = random_word::gen_len(5, random_word::Lang::En).unwrap();
-    let first_word = format!("{}{}", first_word.chars().next().unwrap().to_uppercase().collect::<String>(), &first_word[1..]);
+    // print out the player_names from the playerid_playername_map
+    let playerid_playername_map_guard = playerid_playername_map.read().await;
+    let player_names = playerid_playername_map_guard.values().cloned().collect::<Vec<String>>().join(",");
+    drop(playerid_playername_map_guard);
 
-    let second_word = random_word::gen_len(5, random_word::Lang::En).unwrap();
-    let second_word = format!("{}{}", second_word.chars().next().unwrap().to_uppercase().collect::<String>(), &second_word[1..]);
+    let response = HTTPResponse { status: "SUCCESS".to_string(), message: player_names};
+    let serialized_response = serde_json::to_string(&response).unwrap();
+    return HttpResponse::Ok().json(serialized_response);
 
-    let player_name = format!("{}{}", first_word, second_word);
-    
-    return player_name;
 }
+
 
 #[post("/register_testnet")]
 async fn register_testnet_handler(
@@ -467,6 +485,8 @@ async fn register_testnet_handler(
         return HttpResponse::Ok().json(serialized_response);
     }
 }
+
+
 
 
 #[tokio::main]
@@ -559,6 +579,7 @@ async fn main() {
                             .service(inventory_handler)
                             .service(admin_handler)
                             .service(register_testnet_handler)
+                            .service(player_handler)
                     })
                     .bind(("127.0.0.1", 8090)).expect("[!] Failed to bind the address") // this will fail the whole exchange if something else is already binded to this port
                     .run()
